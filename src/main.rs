@@ -39,10 +39,10 @@ impl InMemDataset {
 fn main() -> Result<(), Box<dyn Error>> {
     let mut builder = ReaderBuilder::new();
     builder.delimiter(b','); // modify in place; don't reassign the result
-
+    let file_path = "./train.csv";
     // Now, builder still owns a ReaderBuilder that can be passed by value.
     let dataset = InMemDataset::from_csv(
-        r"C:\Users\dgl\Documents\ruststuff\burn-lstm\train.csv",
+        file_path,
         builder,
     )?;
     
