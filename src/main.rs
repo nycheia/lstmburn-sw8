@@ -1,6 +1,11 @@
+mod model;
+mod data;
+mod training;
 use std::error::Error;
 use std::fs::File;
 use csv::ReaderBuilder;
+use crate::model::ModelConfig;
+use burn::backend::Wgpu;
 
 struct InMemDataset {
     records: Vec<Vec<String>>,
@@ -47,5 +52,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
     
     println!("Loaded {} records", dataset.records.len());
+
+    type MyBackend = Wgpu<f32, i32>;
+
+    let device = Default::default();
+    let model = ModelConfig::new(10, 512).init::<MyBackend>(&device);
+
+    println!("{}", model);
     Ok(())
 }
