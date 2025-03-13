@@ -30,43 +30,39 @@ impl ModelConfig {
     /// Returns the initialized model.
     pub fn init<B: Backend>(&self, device: &B::Device) -> Model<B> {
         Model {
-            lstm1: LstmConfig::new(1, 32, true).init(device),
-            lstm2: LstmConfig::new(2, 64, true).init(device),
+            lstm1: LstmConfig::new(2, 32, true).init(device),
+            lstm2: LstmConfig::new(32, 64, true).init(device),
             pool: AdaptiveAvgPool2dConfig::new([8, 8]).init(),
             activation: Relu::new(),
-            linear1: LinearConfig::new(16 * 8 * 8, self.hidden_size).init(device),
-            linear2: LinearConfig::new(self.hidden_size, self.num_classes).init(device),
+            linear1: LinearConfig::new(64, 32).init(device),
+            linear2: LinearConfig::new(32, self.num_classes).init(device),
             dropout: DropoutConfig::new(self.dropout).init(),
         }
     }
 }
 
 impl<B: Backend> Model<B> {
-    /// # Shapes
-    ///   - Images [batch_size, height, width]
-    ///   - Output [batch_size, num_classes]
     pub fn forward(&self, images: Tensor<B, 3>) -> Tensor<B, 2> {
-        let [batch_size, sequence_length, feature_size] = images.dims();
+        let [batch_size, sequence_length, _feature_size] = images.dims();
 
-        // Create a channel at the second dimension.
-        let x = images;
-
-
+        let x = images.clone();
         let (x, _) = self.lstm1.forward(x, None);
         let x = self.dropout.forward(x);
-        let (x,_) = self.lstm2.forward(x, None); 
+        let (x, _) = self.lstm2.forward(x, None);
         let x = self.dropout.forward(x);
         let x = self.activation.forward(x);
-
-        //let x = self.pool.forward(x); // [batch_size, 16, 8, 8]
-        //let x = x.reshape([batch_size, 16 * 8 * 8]);
-        let last_index: Tensor<B, 1, Int> = Tensor::from([sequence_length as i32 - 1]);
-        let x = x.select(1, last_index);
+        // Use dimensions from the LSTM output for slicing.
+        let dims = x.dims();
+        let x = x.slice([
+            0..dims[0],             // batch dimension
+            (dims[1] - 1)..dims[1], // last time step
+            0..dims[2],             // all features
+        ])
+        .squeeze(1); // Now x should have shape [batch_size, hidden_dim]
 
         let x = self.linear1.forward(x);
         let x = self.dropout.forward(x);
         let x = self.activation.forward(x);
-        let x = x.squeeze(1);
-        self.linear2.forward(x) // [batch_size, num_classes]
+        self.linear2.forward(x)
     }
 }

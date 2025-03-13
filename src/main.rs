@@ -1,14 +1,20 @@
 mod model;
 mod data;
 mod training;
+//use std::collections::HashSet;
 use std::error::Error;
 use std::fs::{File, read_to_string};
-use csv::ReaderBuilder;
-use crate::model::ModelConfig;
-use burn::backend::Wgpu;
+//use csv::ReaderBuilder;
+//use serde_json::Value;
+use crate::{model::ModelConfig, training::TrainingConfig};
+//use data::dataset::InMemDataset;
+use burn::{
+    backend::{Autodiff, Wgpu},
+    optim::AdamConfig,
+};
 
 // Trajectory structure.
-#[derive(Debug)]
+/*#[derive(Debug)]
 struct Trajectory {
     id: String,
     timestamp: String,
@@ -106,11 +112,11 @@ impl InMemDataset {
 
         Ok(Self { records, skipped: skipped_records })
     }
-}
+}*/
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Load CSV data.
-    let mut builder = ReaderBuilder::new();
+    /*let mut builder = ReaderBuilder::new();
     builder.delimiter(b',');
     let file_path = "./train.csv";
     // Now, builder still owns a ReaderBuilder that can be passed by value.
@@ -119,7 +125,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         builder,
     )?;
     
-    println!("Loaded {} records", dataset.records.len());
+    println!("Loaded {} records", dataset.records.len());*/
 
     type MyBackend = Wgpu<f32, i32>;
 
@@ -127,5 +133,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let model = ModelConfig::new(10, 512).init::<MyBackend>(&device);
 
     println!("{}", model);
+
+    type MyAutodiffBackend = Autodiff<MyBackend>;
+    let artifact_dir = "./tmp";
+    let device = burn::backend::wgpu::WgpuDevice::default();
+    crate::training::train::<MyAutodiffBackend>(
+        artifact_dir,
+        TrainingConfig::new(ModelConfig::new(10, 512), AdamConfig::new()),
+        device.clone(),
+    );
+
     Ok(())
 }

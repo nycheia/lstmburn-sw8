@@ -13,9 +13,10 @@ use burn::data::{
 };
 use burn::record::CompactRecorder;
 use burn::module::Module;
-use crate::data::{MnistBatcher, MnistBatch};
+//use crate::data::{MnistBatcher, MnistBatch};
 use crate::model::Model;
 use crate::ModelConfig;
+use crate::data::{CsvDataset, CsvBatch, CsvBatcher};
 
 
 impl<B: Backend> Model<B> {
@@ -33,17 +34,17 @@ impl<B: Backend> Model<B> {
     }
 }
 
-impl<B: AutodiffBackend> TrainStep<MnistBatch<B>, ClassificationOutput<B>> for Model<B> {
-    fn step(&self, batch: MnistBatch<B>) -> TrainOutput<ClassificationOutput<B>> {
-        let item = self.forward_classification(batch.images, batch.targets);
+impl<B: AutodiffBackend> TrainStep<CsvBatch<B>, ClassificationOutput<B>> for Model<B> {
+    fn step(&self, batch: CsvBatch<B>) -> TrainOutput<ClassificationOutput<B>> {
+        let item = self.forward_classification(batch.features, batch.labels);
 
         TrainOutput::new(self, item.loss.backward(), item)
     }
 }
 
-impl<B: Backend> ValidStep<MnistBatch<B>, ClassificationOutput<B>> for Model<B> {
-    fn step(&self, batch: MnistBatch<B>) -> ClassificationOutput<B> {
-        self.forward_classification(batch.images, batch.targets)
+impl<B: Backend> ValidStep<CsvBatch<B>, ClassificationOutput<B>> for Model<B> {
+    fn step(&self, batch: CsvBatch<B>) -> ClassificationOutput<B> {
+        self.forward_classification(batch.features, batch.labels)
     }
 }
 
@@ -77,20 +78,23 @@ pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, dev
 
     B::seed(config.seed);
 
-    let batcher_train = MnistBatcher::<B>::new(device.clone());
-    let batcher_valid = MnistBatcher::<B::InnerBackend>::new(device.clone());
+    let batcher_train = CsvBatcher::<B>::new(device.clone());
+    let batcher_valid = CsvBatcher::<B::InnerBackend>::new(device.clone());
+    
+    let csv_dataset = CsvDataset::from_csv("./train.csv").expect("Failed to load CSV data");
+    let (train_dataset, test_dataset) = csv_dataset.split(0.7);
 
     let dataloader_train = DataLoaderBuilder::new(batcher_train)
         .batch_size(config.batch_size)
         .shuffle(config.seed)
         .num_workers(config.num_workers)
-        .build(MnistDataset::train());
+        .build(train_dataset);
 
     let dataloader_test = DataLoaderBuilder::new(batcher_valid)
         .batch_size(config.batch_size)
         .shuffle(config.seed)
         .num_workers(config.num_workers)
-        .build(MnistDataset::test());
+        .build(test_dataset);
 
     let learner = LearnerBuilder::new(artifact_dir)
         .metric_train_numeric(AccuracyMetric::new())
