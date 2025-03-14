@@ -42,10 +42,10 @@ impl ModelConfig {
 }
 
 impl<B: Backend> Model<B> {
-    pub fn forward(&self, images: Tensor<B, 3>) -> Tensor<B, 2> {
-        let [batch_size, sequence_length, _feature_size] = images.dims();
+    pub fn forward(&self, features: Tensor<B, 3>) -> Tensor<B, 2> {
+        let [_batch_size, _sequence_length, _feature_size] = features.dims();
 
-        let x = images.clone();
+        let x = features.clone();
         let (x, _) = self.lstm1.forward(x, None);
         let x = self.dropout.forward(x);
         let (x, _) = self.lstm2.forward(x, None);

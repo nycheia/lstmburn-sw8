@@ -1,7 +1,4 @@
-use burn::{
-    data::{dataloader::batcher::Batcher, dataset::vision::MnistItem},
-    prelude::*,
-};
+use burn::prelude::*;
 use burn::data::dataloader::batcher;
 //use burn::data::dataset::InMemDataset;
 use burn::tensor::TensorData;
@@ -16,9 +13,10 @@ use burn::data::dataset::Dataset;
 /// A custom item type representing one row from your CSV.
 #[derive(Debug, Clone)]
 pub struct CsvItem {
-    pub features: Vec<f32>,
-    pub label: i64,
+    pub features: Vec<f32>,        // e.g., [timestamp, ...]
+    pub label: Vec<Vec<f32>>,      // the coordinates, e.g., [[lon, lat], ...]
 }
+
 
 impl Dataset<CsvItem> for CsvDataset {
     fn len(&self) -> usize {

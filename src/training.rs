@@ -7,10 +7,7 @@ use burn::train::{
 };
 use burn::config::Config;
 use burn::optim::AdamConfig;
-use burn::data::{
-    dataloader::DataLoaderBuilder,
-    dataset::vision::MnistDataset,
-};
+use burn::data::dataloader::DataLoaderBuilder;
 use burn::record::CompactRecorder;
 use burn::module::Module;
 //use crate::data::{MnistBatcher, MnistBatch};
@@ -52,7 +49,7 @@ impl<B: Backend> ValidStep<CsvBatch<B>, ClassificationOutput<B>> for Model<B> {
 pub struct TrainingConfig {
     pub model: ModelConfig,
     pub optimizer: AdamConfig,
-    #[config(default = 10)]
+    #[config(default = 1)]
     pub num_epochs: usize,
     #[config(default = 64)]
     pub batch_size: usize,
@@ -82,6 +79,7 @@ pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, dev
     let batcher_valid = CsvBatcher::<B::InnerBackend>::new(device.clone());
     
     let csv_dataset = CsvDataset::from_csv("./train.csv").expect("Failed to load CSV data");
+    
     let (train_dataset, test_dataset) = csv_dataset.split(0.7);
 
     let dataloader_train = DataLoaderBuilder::new(batcher_train)
