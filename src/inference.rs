@@ -14,11 +14,11 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device, item: CsvItem) {
 
     let model = config.model.init::<B>(&device).load_record(record);
 
-    let label = item.label;
+    let label = item.label.clone();
     let batcher = CsvBatcher::new(device);
     let batch = batcher.batch(vec![item]);
     let output = model.forward(batch.features);
-    let predicted = output.argmax(1).flatten::<1>(0, 1).into_scalar();
 
-    println!("Predicted {} Expected {}", predicted, label);
+    println!("Predicted {:?} Expected {:?}", output.into_data(), label);
+    //println!("Predicted output: {}", output)
 }
