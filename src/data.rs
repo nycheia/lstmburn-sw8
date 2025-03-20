@@ -1,7 +1,4 @@
-use burn::{
-    //data::{dataloader::batcher::Batcher, dataset::vision::MnistItem},
-    prelude::*,
-};
+use burn::prelude::*;
 use burn::data::dataloader::batcher;
 //use burn::data::dataset::InMemDataset;
 use burn::tensor::TensorData;
@@ -12,13 +9,15 @@ use std::error::Error;
 use std::fs::File;
 use csv::ReaderBuilder;
 use burn::data::dataset::Dataset;
+use serde_json;
 
 /// A custom item type representing one row from your CSV.
 #[derive(Debug, Clone)]
 pub struct CsvItem {
-    pub features: Vec<f32>,
-    pub label: i64,
+    pub features: Vec<f32>,        // e.g., [timestamp, ...]
+    pub label: Vec<Vec<f32>>,      // the coordinates, e.g., [[lon, lat], ...]
 }
+
 
 impl Dataset<CsvItem> for CsvDataset {
     fn len(&self) -> usize {
@@ -109,17 +108,19 @@ impl CsvDataset {
             .records
             .into_iter()
             .map(|record| {
-                // Assume that the first N-1 columns are features and the last column is the label.
-                let features = record[..record.len()-1]
-                    .iter()
-                    .filter_map(|s| s.parse::<f32>().ok())
-                    .collect();
-                let label = record
-                    .last()
-                    .unwrap_or(&"0".to_string())
-                    .parse::<i64>()
-                    .unwrap_or(0);
-                CsvItem { features, label }
+                // Suppose the first column is an ID (which we might ignore or transform),
+                // the second column is the timestamp (which we'll use as our feature),
+                // and the third column is the JSON string with coordinates.
+                let timestamp_feature = record.get(1)
+                    .and_then(|s| s.parse::<f32>().ok())
+                    .unwrap_or(0.0);
+                // Parse the coordinates from the JSON string:
+                let coords: Vec<Vec<f32>> = serde_json::from_str(record.get(2).unwrap_or(&"[]".to_string()))
+                    .unwrap_or_default();
+                CsvItem {
+                    features: vec![timestamp_feature], // or include more features if available
+                    label: coords,
+                }
             })
             .collect();
         Ok(Self { items })
@@ -131,7 +132,7 @@ impl CsvDataset {
 #[derive(Clone, Debug)]
 pub struct CsvBatch<B: Backend> {
     pub features: Tensor<B, 3>,
-    pub labels: Tensor<B, 1, Int>,
+    pub labels: Tensor<B, 3>,
 }
 
 /// A batcher that converts CsvItem instances into CsvBatch instances.
@@ -146,26 +147,96 @@ impl<B: Backend> CsvBatcher<B> {
     }
 }
 
-impl<B: Backend> batcher::Batcher<CsvItem, CsvBatch<B>> for CsvBatcher<B>{
+impl<B: Backend> batcher::Batcher<CsvItem, CsvBatch<B>> for CsvBatcher<B> {
     fn batch(&self, items: Vec<CsvItem>) -> CsvBatch<B> {
+        // Define a fixed route length
+        let fixed_len = 10;
+        
+        // Process features as before
         let features = items.iter().map(|item| {
-            // Create a 2D tensor with shape [1, sequence_length]
             let data = TensorData::new(item.features.clone(), [1, item.features.len()]);
             Tensor::<B, 2>::from_data(data, &self.device)
         }).collect::<Vec<_>>();
 
+        // Process labels: pad or truncate each route to fixed_len coordinate pairs
         let labels = items.iter().map(|item| {
-            Tensor::<B, 1, Int>::from_data([item.label.elem::<B::IntElem>()], &self.device)
+            let mut route = item.label.clone();
+            let current_len = route.len();
+            if current_len < fixed_len {
+                // If route is too short, pad it by repeating the last coordinate pair
+                let pad_value = route.last().cloned().unwrap_or_else(|| vec![0.0, 0.0]);
+                route.resize(fixed_len, pad_value);
+            } else if current_len > fixed_len {
+                // If route is too long, truncate it
+                route.truncate(fixed_len);
+            }
+            // Now route has exactly fixed_len coordinate pairs
+            let rows = route.len();  // This should be fixed_len
+            let cols = if rows > 0 { route[0].len() } else { 0 }; // Expected to be 2
+            let flat_label: Vec<f32> = route.into_iter().flatten().collect();
+            let data = TensorData::new(flat_label, [rows, cols]);
+            // Convert to a tensor of shape [1, fixed_len, 2]
+            Tensor::<B, 2>::from_data(data, &self.device).reshape([1, rows, cols])
         }).collect::<Vec<_>>();
 
-        let features = Tensor::cat(features, 0).to_device(&self.device); // shape: [batch_size, sequence_length]
-        let dims = features.dims(); // dims[0] is batch_size, dims[1] is 2.
-        let features = features.reshape([dims[0], 1, dims[1]]);
+        let features = Tensor::cat(features, 0).to_device(&self.device); // shape: [batch_size, feature_length]
+        let dims = features.dims();
+        let features = features.reshape([dims[0], 1, dims[1]]); // [batch_size, 1, feature_length]
+        let labels = Tensor::cat(labels, 0).to_device(&self.device); // shape: [batch_size, fixed_len, 2]
 
-        let labels = Tensor::cat(labels, 0).to_device(&self.device);
-
+        //println!("Batch features shape: {:?}", features.dims());
+        //println!("Batch labels shape: {:?}", labels.dims());
         CsvBatch { features, labels }
-
     }
 }
 
+
+
+
+
+
+//burn book test code
+/*#[derive(Clone)]
+pub struct MnistBatcher<B: Backend> {
+    device: B::Device,
+}
+
+impl<B: Backend> MnistBatcher<B> {
+    pub fn new(device: B::Device) -> Self {
+        Self { device }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MnistBatch<B: Backend> {
+    pub images: Tensor<B, 3>,
+    pub targets: Tensor<B, 1, Int>,
+}
+
+impl<B: Backend> Batcher<MnistItem, MnistBatch<B>> for MnistBatcher<B> {
+    fn batch(&self, items: Vec<MnistItem>) -> MnistBatch<B> {
+        let images = items
+            .iter()
+            .map(|item| TensorData::from(item.image).convert::<B::FloatElem>())
+            .map(|data| Tensor::<B, 2>::from_data(data, &self.device))
+            .map(|tensor| tensor.reshape([1,28, 28])) //  no channel dimension.
+            // Normalize: make between [0,1] and adjust mean=0, std=1.
+            .map(|tensor| ((tensor / 255) - 0.1307) / 0.3081)
+            .collect();
+
+        let targets = items
+            .iter()
+            .map(|item| {
+                Tensor::<B, 1, Int>::from_data(
+                    [(item.label as i64).elem::<B::IntElem>()],
+                    &self.device,
+                )
+            })
+            .collect();
+
+        let images = Tensor::cat(images, 0).to_device(&self.device);
+        let targets = Tensor::cat(targets, 0).to_device(&self.device);
+
+        MnistBatch { images, targets }
+    }
+}*/
