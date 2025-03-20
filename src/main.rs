@@ -4,7 +4,6 @@ mod training;
 mod inference;
 //use std::collections::HashSet;
 use std::error::Error;
-use std::fs::{File, read_to_string};
 use burn::data::dataloader::Dataset;
 //use csv::ReaderBuilder;
 //use serde_json::Value;

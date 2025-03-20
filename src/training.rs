@@ -1,4 +1,4 @@
-use burn::prelude::{Backend, Tensor, Int};
+use burn::prelude::Backend;
 use burn::tensor::backend::AutodiffBackend;
 use burn::train::{
     TrainStep, TrainOutput, ValidStep, RegressionOutput, LearnerBuilder,
@@ -56,10 +56,8 @@ pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, dev
         .expect("Config should be saved successfully");
 
     B::seed(config.seed);
-
     let batcher_train = CsvBatcher::<B>::new(device.clone());
     let batcher_valid = CsvBatcher::<B::InnerBackend>::new(device.clone());
-    
     let csv_dataset = CsvDataset::from_csv("./train.csv").expect("Failed to load CSV data");
     let (train_dataset, test_dataset) = csv_dataset.split(0.7);
 
@@ -68,13 +66,13 @@ pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, dev
         .shuffle(config.seed)
         .num_workers(config.num_workers)
         .build(Arc::new(train_dataset));
-    
+
     let dataloader_test = DataLoaderBuilder::new(batcher_valid)
         .batch_size(config.batch_size)
         .shuffle(config.seed)
         .num_workers(config.num_workers)
         .build(Arc::new(test_dataset));
-    
+
     let learner = LearnerBuilder::new(artifact_dir)
         .metric_train_numeric(LossMetric::new())
         .metric_valid_numeric(LossMetric::new())
@@ -87,9 +85,7 @@ pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, dev
             config.optimizer.init(),
             config.learning_rate,
         );
-
     let model_trained = learner.fit(dataloader_train, dataloader_test);
-
     model_trained
         .save_file(format!("{artifact_dir}/model"), &CompactRecorder::new())
         .expect("Trained model should be saved successfully");
