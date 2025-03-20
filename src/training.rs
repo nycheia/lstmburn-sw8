@@ -1,29 +1,47 @@
 use burn::prelude::{Backend, Tensor, Int};
+use burn::nn::loss::CrossEntropyLossConfig;
 use burn::tensor::backend::AutodiffBackend;
 use burn::train::{
-    TrainStep, TrainOutput, ValidStep, RegressionOutput, LearnerBuilder,
-    metric::LossMetric,
+    TrainStep, TrainOutput, ValidStep, LearnerBuilder, ClassificationOutput,
+    metric::{AccuracyMetric, LossMetric},
 };
 use burn::config::Config;
 use burn::optim::AdamConfig;
 use burn::data::dataloader::DataLoaderBuilder;
 use burn::record::CompactRecorder;
+use burn::module::Module;
+//use crate::data::{MnistBatcher, MnistBatch};
 use crate::model::Model;
 use crate::ModelConfig;
 use crate::data::{CsvDataset, CsvBatch, CsvBatcher};
-use burn::module::Module;
-use std::sync::Arc;
 
-impl<B: AutodiffBackend> TrainStep<CsvBatch<B>, RegressionOutput<B>> for Model<B> {
-    fn step(&self, batch: CsvBatch<B>) -> TrainOutput<RegressionOutput<B>> {
-        let item = self.forward_regression(batch.features, batch.labels);
+
+impl<B: Backend> Model<B> {
+    pub fn forward_classification(
+        &self,
+        images: Tensor<B, 3>,
+        targets: Tensor<B, 1, Int>,
+    ) -> ClassificationOutput<B> {
+        let output = self.forward(images);
+        let loss = CrossEntropyLossConfig::new()
+            .init(&output.device())
+            .forward(output.clone(), targets.clone());
+
+        ClassificationOutput::new(loss, output, targets)
+    }
+}
+
+impl<B: AutodiffBackend> TrainStep<CsvBatch<B>, ClassificationOutput<B>> for Model<B> {
+    fn step(&self, batch: CsvBatch<B>) -> TrainOutput<ClassificationOutput<B>> {
+        let item = self.forward_classification(batch.features, batch.labels);
+
         TrainOutput::new(self, item.loss.backward(), item)
     }
 }
 
-impl<B: Backend> ValidStep<CsvBatch<B>, RegressionOutput<B>> for Model<B> {
-    fn step(&self, batch: CsvBatch<B>) -> RegressionOutput<B> {
-        self.forward_regression(batch.features, batch.labels)
+impl<B: Backend> ValidStep<CsvBatch<B>, ClassificationOutput<B>> for Model<B> {
+    fn step(&self, batch: CsvBatch<B>) -> ClassificationOutput<B> {
+        self.forward_classification(batch.features, batch.labels)
     }
 }
 
@@ -61,21 +79,24 @@ pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, dev
     let batcher_valid = CsvBatcher::<B::InnerBackend>::new(device.clone());
     
     let csv_dataset = CsvDataset::from_csv("./train.csv").expect("Failed to load CSV data");
+    
     let (train_dataset, test_dataset) = csv_dataset.split(0.7);
 
     let dataloader_train = DataLoaderBuilder::new(batcher_train)
         .batch_size(config.batch_size)
         .shuffle(config.seed)
         .num_workers(config.num_workers)
-        .build(Arc::new(train_dataset));
-    
+        .build(train_dataset);
+
     let dataloader_test = DataLoaderBuilder::new(batcher_valid)
         .batch_size(config.batch_size)
         .shuffle(config.seed)
         .num_workers(config.num_workers)
-        .build(Arc::new(test_dataset));
-    
+        .build(test_dataset);
+
     let learner = LearnerBuilder::new(artifact_dir)
+        .metric_train_numeric(AccuracyMetric::new())
+        .metric_valid_numeric(AccuracyMetric::new())
         .metric_train_numeric(LossMetric::new())
         .metric_valid_numeric(LossMetric::new())
         .with_file_checkpointer(CompactRecorder::new())
