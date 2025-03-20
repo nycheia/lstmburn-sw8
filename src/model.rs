@@ -1,16 +1,18 @@
 use burn::{
     nn::{
-        lstm::{Lstm, LstmConfig},
-        pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig},
         Dropout, DropoutConfig, Linear, LinearConfig, Relu,
+        gru::{self, Gru, GruConfig},
+        loss::{MseLoss, Reduction::Mean},
+        pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig},
     },
     prelude::*,
+    train::RegressionOutput,
 };
 
 #[derive(Module, Debug)]
 pub struct Model<B: Backend> {
-    lstm1: Lstm<B>,
-    lstm2: Lstm<B>,
+    gru1: Gru<B>,
+    gru2: Gru<B>,
     pool: AdaptiveAvgPool2d,
     dropout: Dropout,
     linear1: Linear<B>,
@@ -30,8 +32,8 @@ impl ModelConfig {
     /// Returns the initialized model.
     pub fn init<B: Backend>(&self, device: &B::Device) -> Model<B> {
         Model {
-            lstm1: LstmConfig::new(2, 32, true).init(device),
-            lstm2: LstmConfig::new(32, 64, true).init(device),
+            gru1: GruConfig::new(2, 32, true).init(device),
+            gru2: GruConfig::new(32, 64, true).init(device),
             pool: AdaptiveAvgPool2dConfig::new([8, 8]).init(),
             activation: Relu::new(),
             linear1: LinearConfig::new(64, 32).init(device),
@@ -46,23 +48,38 @@ impl<B: Backend> Model<B> {
         let [_batch_size, _sequence_length, _feature_size] = features.dims();
 
         let x = features.clone();
-        let (x, _) = self.lstm1.forward(x, None);
+        let x = self.gru1.forward(x, None);
         let x = self.dropout.forward(x);
-        let (x, _) = self.lstm2.forward(x, None);
+        let x = self.gru2.forward(x, None);
         let x = self.dropout.forward(x);
         let x = self.activation.forward(x);
         // Use dimensions from the LSTM output for slicing.
         let dims = x.dims();
-        let x = x.slice([
-            0..dims[0],             // batch dimension
-            (dims[1] - 1)..dims[1], // last time step
-            0..dims[2],             // all features
-        ])
-        .squeeze(1); // Now x should have shape [batch_size, hidden_dim]
+        let x = x
+            .slice([
+                0..dims[0],             // batch dimension
+                (dims[1] - 1)..dims[1], // last time step
+                0..dims[2],             // all features
+            ])
+            .squeeze(1); // Now x should have shape [batch_size, hidden_dim]
 
         let x = self.linear1.forward(x);
         let x = self.dropout.forward(x);
         let x = self.activation.forward(x);
         self.linear2.forward(x)
+    }
+
+    pub fn forward_regression(
+        &self,
+        features: Tensor<B, 3>,
+        targets: Tensor<B, 3>,
+    ) -> RegressionOutput<B> {
+        let output_seq = self.forward(features); // shape: [batch_size, seq_len, output_dim]
+        let dims = output_seq.dims(); // dims = [batch_size, seq_len, output_dim]
+        // Flatten the batch and sequence dimensions.
+        let output_2d = output_seq.reshape([dims[0] * dims[1], dims[2]]);
+        let targets_2d = targets.reshape([dims[0] * dims[1], dims[2]]);
+        let loss = MseLoss::new().forward(output_2d.clone(), targets_2d.clone(), Mean);
+        RegressionOutput::new(loss, output_2d, targets_2d)
     }
 }
