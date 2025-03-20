@@ -20,5 +20,4 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device, item: CsvItem) {
     let output = model.forward(batch.features);
 
     println!("Predicted {:?} Expected {:?}", output.into_data(), label);
-    //println!("Predicted output: {}", output)
 }
