@@ -24,9 +24,10 @@ pub struct Model<B: Backend> {
 
 #[derive(Config, Debug)]
 pub struct ModelConfig {
-    hidden_size: usize,
-    #[config(default = "0.5")]
-    dropout: f64,
+    #[config(default = 128)]
+    pub hidden_size: usize,
+    #[config(default = 0.5)]
+    pub dropout: f64,
 }
 
 impl ModelConfig {
