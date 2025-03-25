@@ -3,7 +3,6 @@ mod data;
 mod training;
 mod inference;
 use std::error::Error;
-//use std::fs::{File, read_to_string};
 use burn::data::dataloader::Dataset;
 use crate::{model::ModelConfig, training::TrainingConfig};
 use burn::{
@@ -14,11 +13,12 @@ use crate::data::CsvDataset;
 
 
 fn main() -> Result<(), Box<dyn Error>> {
-    
+   
+
     type MyBackend = Wgpu<f32, i32>;
 
     let device = Default::default();
-    let model = ModelConfig::new(10, 512).init::<MyBackend>(&device);
+    let model = ModelConfig::new(128).init::<MyBackend>(&device);
 
     println!("{}", model);
 
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let device = burn::backend::wgpu::WgpuDevice::default();
     crate::training::train::<MyAutodiffBackend>(
         artifact_dir,
-        TrainingConfig::new(ModelConfig::new(10, 512), AdamConfig::new()),
+        TrainingConfig::new(ModelConfig::new(128), AdamConfig::new()),
         device.clone(),
     );
 
