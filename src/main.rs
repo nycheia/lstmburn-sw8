@@ -15,15 +15,16 @@ use crate::data::CsvDataset;
 fn main() -> Result<(), Box<dyn Error>> {
 
     // Model config
-    let hidden_size:usize = 128;
+    let hidden_size:usize = 256;
     let dropout:f64 = 0.5;
 
     // Training config
-    let num_epochs: usize   = 1;
-    let batch_size: usize = 4;
-    let num_workers: usize = 42;
+    let num_epochs: usize = 2;
+    let batch_size: usize = 64;
+    let num_workers: usize = 4;
     let seed: u64 = 42;
     let learning_rate: f64 = 1.0e-4;
+    // Optimizer should not by changed, but can be if needed
     let optimizer_config = AdamConfig::new();
 
 

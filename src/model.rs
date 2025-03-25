@@ -26,7 +26,7 @@ pub struct Model<B: Backend> {
 pub struct ModelConfig {
     #[config(default = 128)]
     pub hidden_size: usize,
-    #[config(default = 0.5)]
+    #[config(default = "0.5")]
     pub dropout: f64,
 }
 
