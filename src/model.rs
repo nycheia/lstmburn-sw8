@@ -51,7 +51,6 @@ impl<B: Backend> Model<B> {
     pub fn forward(&self, features: Tensor<B, 3>) -> Tensor<B, 3> {
         let x = features.clone();
     
-    
         // GRU 1: Process the input through the first GRU layer
         let gru1_output = self.gru1.forward(x, None); 
     

@@ -56,6 +56,7 @@ pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, dev
         .expect("Config should be saved successfully");
 
     B::seed(config.seed);
+    
     let batcher_train = CsvBatcher::<B>::new(device.clone());
     let batcher_valid = CsvBatcher::<B::InnerBackend>::new(device.clone());
     let csv_dataset = CsvDataset::from_csv("./train.csv").expect("Failed to load CSV data");

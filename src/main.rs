@@ -16,12 +16,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Model config
     let hidden_size:usize = 256;
+    // dropout should remain close to 0.5
     let dropout:f64 = 0.5;
 
     // Training config
     let num_epochs: usize = 2;
     let batch_size: usize = 64;
     let num_workers: usize = 4;
+    // Seed ensures reproducibility
     let seed: u64 = 42;
     let learning_rate: f64 = 1.0e-4;
     // Optimizer should not by changed, but can be if needed
