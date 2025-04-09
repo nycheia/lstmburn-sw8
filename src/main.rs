@@ -11,7 +11,6 @@ use burn::{
 };
 use crate::data::CsvDataset;
 
-
 fn main() -> Result<(), Box<dyn Error>> {
 
     // Model config
@@ -20,7 +19,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let dropout:f64 = 0.5;
 
     // Training config
-    let num_epochs: usize = 2;
+    let num_epochs: usize = 1;
     let batch_size: usize = 64;
     let num_workers: usize = 4;
     // Seed ensures reproducibility
@@ -29,7 +28,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Optimizer should not by changed, but can be if needed
     let optimizer_config = AdamConfig::new();
 
-
+    //type MyBackend = Wgpu<f32, i32>;
+    //type MyBackend = NdArray<f32, i32>;
     type MyBackend = Wgpu<f32, i32>;
 
     let device = Default::default();
@@ -43,8 +43,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("{}", model);
 
+    
+
     type MyAutodiffBackend = Autodiff<MyBackend>;
     let artifact_dir = "./training-logs";
+    //let device = burn::backend::ndarray::NdArrayDevice::default();
     let device = burn::backend::wgpu::WgpuDevice::default();
 
 
@@ -75,6 +78,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             .get(1)
             .unwrap(),
     );
+
+    
 
     /*     for (i, item) in csv_dataset.items.iter().enumerate() {
         if i >= 5 { break; }
