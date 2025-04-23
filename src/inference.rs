@@ -1,14 +1,14 @@
 use crate::TrainingConfig;
-use crate::data::{CsvItem, CsvBatcher};
+use crate::data::{Item, DataBatcher};
 use burn::prelude::*;
-use burn::record::CompactRecorder;
+use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use burn::record::Recorder;
 use burn::data::dataloader::batcher::Batcher;
 
-pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device, item: CsvItem) {
+pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device, item: Item) {
     let config = TrainingConfig::load(format!("{artifact_dir}/config.json"))
         .expect("Config should exist for the model");
-    let record = CompactRecorder::new()
+    let record = BinFileRecorder::<FullPrecisionSettings>::new()
         .load(format!("{artifact_dir}/model").into(), &device)
         .expect("Trained model should exist");
 
@@ -23,7 +23,7 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device, item: CsvItem) {
     }
 
     let label = route;
-    let batcher = CsvBatcher::new(device);
+    let batcher = DataBatcher::new(device);
     let batch = batcher.batch(vec![item]);
     let output = model.forward(batch.features);
     //let predicted_route = output.squeeze::<2>(1).into_data();

@@ -1,28 +1,27 @@
+use crate::ModelConfig;
+use crate::data::{Batch, DataBatcher, ItemDataset, format_string};
+use crate::model::Model;
+use burn::config::Config;
+use burn::data::dataloader::DataLoaderBuilder;
+use burn::module::Module;
+use burn::optim::AdamConfig;
 use burn::prelude::Backend;
+use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use burn::tensor::backend::AutodiffBackend;
 use burn::train::{
-    TrainStep, TrainOutput, ValidStep, RegressionOutput, LearnerBuilder,
-    metric::LossMetric,
+    LearnerBuilder, RegressionOutput, TrainOutput, TrainStep, ValidStep, metric::LossMetric,
 };
-use burn::config::Config;
-use burn::optim::AdamConfig;
-use burn::data::dataloader::DataLoaderBuilder;
-use burn::record::CompactRecorder;
-use crate::model::Model;
-use crate::ModelConfig;
-use crate::data::{CsvDataset, CsvBatch, CsvBatcher};
-use burn::module::Module;
 use std::sync::Arc;
 
-impl<B: AutodiffBackend> TrainStep<CsvBatch<B>, RegressionOutput<B>> for Model<B> {
-    fn step(&self, batch: CsvBatch<B>) -> TrainOutput<RegressionOutput<B>> {
+impl<B: AutodiffBackend> TrainStep<Batch<B>, RegressionOutput<B>> for Model<B> {
+    fn step(&self, batch: Batch<B>) -> TrainOutput<RegressionOutput<B>> {
         let item = self.forward_regression(batch.features, batch.labels);
         TrainOutput::new(self, item.loss.backward(), item)
     }
 }
 
-impl<B: Backend> ValidStep<CsvBatch<B>, RegressionOutput<B>> for Model<B> {
-    fn step(&self, batch: CsvBatch<B>) -> RegressionOutput<B> {
+impl<B: Backend> ValidStep<Batch<B>, RegressionOutput<B>> for Model<B> {
+    fn step(&self, batch: Batch<B>) -> RegressionOutput<B> {
         self.forward_regression(batch.features, batch.labels)
     }
 }
@@ -49,18 +48,24 @@ fn create_artifact_dir(artifact_dir: &str) {
     std::fs::create_dir_all(artifact_dir).ok();
 }
 
-pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, device: B::Device) {
+pub fn train<B: AutodiffBackend>(
+    artifact_dir: &str,
+    config: TrainingConfig,
+    device: B::Device,
+    unformated_data: String,
+) {
     create_artifact_dir(artifact_dir);
     config
         .save(format!("{artifact_dir}/config.json"))
         .expect("Config should be saved successfully");
 
     B::seed(config.seed);
-    
-    let batcher_train = CsvBatcher::<B>::new(device.clone());
-    let batcher_valid = CsvBatcher::<B::InnerBackend>::new(device.clone());
-    let csv_dataset = CsvDataset::from_csv("./train.csv").expect("Failed to load CSV data");
-    let (train_dataset, test_dataset) = csv_dataset.split(0.7);
+
+    let batcher_train = DataBatcher::<B>::new(device.clone());
+    let batcher_valid = DataBatcher::<B::InnerBackend>::new(device.clone());
+    let formated_data = format_string(&unformated_data);
+    let (train_dataset, test_dataset) = ItemDataset::create_dataset(formated_data, 0.7);
+
 
     let dataloader_train = DataLoaderBuilder::new(batcher_train)
         .batch_size(config.batch_size)
@@ -77,7 +82,7 @@ pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, dev
     let learner = LearnerBuilder::new(artifact_dir)
         .metric_train_numeric(LossMetric::new())
         .metric_valid_numeric(LossMetric::new())
-        .with_file_checkpointer(CompactRecorder::new())
+        .with_file_checkpointer(BinFileRecorder::<FullPrecisionSettings>::new())
         .devices(vec![device.clone()])
         .num_epochs(config.num_epochs)
         .summary()
@@ -89,6 +94,9 @@ pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, dev
 
     let model_trained = learner.fit(dataloader_train, dataloader_test);
     model_trained
-        .save_file(format!("{artifact_dir}/model"), &CompactRecorder::new())
+        .save_file(
+            format!("{artifact_dir}/model"),
+            &BinFileRecorder::<FullPrecisionSettings>::new(),
+        )
         .expect("Trained model should be saved successfully");
 }

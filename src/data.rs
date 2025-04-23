@@ -4,151 +4,99 @@ use burn::data::dataloader::batcher;
 use burn::tensor::TensorData;
 //use burn::prelude::{Backend, Tensor, Int};
 
-use std::collections::HashSet;
-use std::error::Error;
-use std::fs::File;
-use csv::ReaderBuilder;
 use burn::data::dataset::Dataset;
-use serde_json;
 
 /// A custom item type representing one row from your CSV.
 #[derive(Debug, Clone)]
-pub struct CsvItem {
-    pub features: Vec<f32>,        // e.g., [timestamp, ...]
-    pub label: Vec<Vec<f32>>,      // the coordinates, e.g., [[lon, lat], ...]
+pub struct Item {
+    pub features: Vec<f64>,        // e.g., [timestamp, ...]
+    pub label: Vec<Vec<f64>>,      // the coordinates, e.g., [[lon, lat], ...]
 }
 
 
-impl Dataset<CsvItem> for CsvDataset {
+impl Dataset<Item> for ItemDataset {
     fn len(&self) -> usize {
         self.items.len()
     }
 
-    fn get(&self, index: usize) -> Option<CsvItem> {
+    fn get(&self, index: usize) -> Option<Item> {
         self.items.get(index).cloned()
     }
 }
 
-/// A simple in-memory dataset that holds CSV records.
-pub struct InMemDataset {
-    pub records: Vec<Vec<String>>,
+/// A custom dataset that converts CSV records into Item instances.
+#[derive(Debug)]
+pub struct ItemDataset {
+    pub items: Vec<Item>,
 }
 
-impl InMemDataset {
-    pub fn from_csv(path: &str, reader_builder: ReaderBuilder) -> Result<Self, Box<dyn Error>> {
-        let file = File::open(path)?;
-        let mut rdr = reader_builder.from_reader(file);
-        let headers = rdr.headers()?;
-        
-        // Define columns to remove.
-        let remove_cols: HashSet<&str> = [
-            "CALL_TYPE",
-            "ORIGIN_CALL",
-            "ORIGIN_STAND",
-            "TAXI_ID",
-            "DAY_TYPE",
-            "MISSING_DATA",
-        ]
-        .iter()
-        .cloned()
-        .collect();
-        
-        // Keep columns not in remove_cols.
-        let keep_cols: Vec<usize> = headers
-            .iter()
-            .enumerate()
-            .filter(|(_i, col)| !remove_cols.contains(*col))
-            .map(|(i, _)| i)
-            .collect();
-        
-        let mut records: Vec<Vec<String>> = Vec::new();
-        // Locate the "MISSING_DATA" column if it exists.
-        let missing_data_id = headers.iter().position(|col| col == "MISSING_DATA");
-        
-        for result in rdr.records() {
-            let record = result?;
-            // If MISSING_DATA is true, skip this record.
-            if let Some(idx) = missing_data_id {
-                if record.get(idx).unwrap_or("").trim().eq_ignore_ascii_case("true") {
-                    continue;
-                }
-            }
-            let new_record: Vec<String> = keep_cols
-                .iter()
-                .map(|&i| record.get(i).unwrap_or("").to_string())
-                .collect();
-            records.push(new_record);
+impl ItemDataset {
+
+    pub fn create_dataset(data: Vec<Vec<f64>>, train_ratio: f64) -> (ItemDataset, ItemDataset) {
+        if data.is_empty() {
+            return (ItemDataset { items: vec![] }, ItemDataset { items: vec![] });
         }
-        Ok(Self { records })
-    }
-}
 
-/// A custom dataset that converts CSV records into CsvItem instances.
-pub struct CsvDataset {
-    pub items: Vec<CsvItem>,
-}
+        // Extract the feature (first element)
+        let features = data[0]
+            .iter()
+            .map(|&x| x as f64)
+            .collect::<Vec<f64>>();
 
-impl CsvDataset {
-    /// Splits the dataset into two parts, the first containing `train_ratio` portion of the data.
-    pub fn split(self, train_ratio: f64) -> (Self, Self) {
-        let total = self.items.len();
-        let train_len = (total as f64 * train_ratio).round() as usize;
-        let (train_items, test_items) = self.items.split_at(train_len);
+        // Extract the label (remaining elements)
+        let label = data[1..]
+            .iter()
+            .map(|pair| {
+                pair.iter()
+                    .map(|&x| x as f64)
+                    .collect::<Vec<f64>>()
+            })
+            .collect::<Vec<Vec<f64>>>();
+
+        // Calculate the split index
+        let train_len = (label.len() as f64 * train_ratio).round() as usize;
+
+        // Split the label into training and testing
+        let train_labels = label[..train_len].to_vec();
+        let test_labels = label[train_len..].to_vec();
+
+        // Create the training and testing datasets
+        let train_item = Item { features: features.clone(), label: train_labels };
+        let test_item = Item { features: features.clone(), label: test_labels };
+
+        // Return the datasets with their items
         (
-            CsvDataset { items: train_items.to_vec() },
-            CsvDataset { items: test_items.to_vec() },
+            ItemDataset { items: vec![train_item] },
+            ItemDataset { items: vec![test_item] }
         )
     }
 
-    pub fn from_csv(path: &str) -> Result<Self, Box<dyn Error>> {
-        let mut builder = ReaderBuilder::new();
-        builder.delimiter(b',');
-        let dataset = InMemDataset::from_csv(path, builder)?;
-        let items = dataset
-            .records
-            .into_iter()
-            .map(|record| {
-                // Suppose the first column is an ID (which we might ignore or transform),
-                // the second column is the timestamp (which we'll use as our feature),
-                // and the third column is the JSON string with coordinates.
-                let timestamp_feature = record.get(1)
-                    .and_then(|s| s.parse::<f32>().ok())
-                    .unwrap_or(0.0);
-                // Parse the coordinates from the JSON string:
-                let coords: Vec<Vec<f32>> = serde_json::from_str(record.get(2).unwrap_or(&"[]".to_string()))
-                    .unwrap_or_default();
-                CsvItem {
-                    features: vec![timestamp_feature], // or include more features if available
-                    label: coords,
-                }
-            })
-            .collect();
-        Ok(Self { items })
-    }
+
+    
 }
 
 /// A batch produced from CSV data. The features are arranged as a 3D tensor
 /// with shape [batch_size, sequence_length, feature_size] and labels as a 1D tensor.
 #[derive(Clone, Debug)]
-pub struct CsvBatch<B: Backend> {
+pub struct Batch<B: Backend> {
     pub features: Tensor<B, 3>,
     pub labels: Tensor<B, 3>,
 }
 
-/// A batcher that converts CsvItem instances into CsvBatch instances.
+/// A batcher that converts Item instances into Batch instances.
 #[derive(Clone)]
-pub struct CsvBatcher<B: Backend> {
+pub struct DataBatcher<B: Backend> {
     device: B::Device,
 }
 
-impl<B: Backend> CsvBatcher<B> {
+impl<B: Backend> DataBatcher<B> {
     pub fn new(device: B::Device) -> Self {
         Self { device }
     }
 }
 
-impl<B: Backend> batcher::Batcher<CsvItem, CsvBatch<B>> for CsvBatcher<B> {
-    fn batch(&self, items: Vec<CsvItem>) -> CsvBatch<B> {
+impl<B: Backend> batcher::Batcher<Item, Batch<B>> for DataBatcher<B> {
+    fn batch(&self, items: Vec<Item>) -> Batch<B> {
         // Define a fixed route length
         let fixed_len = 10;
         
@@ -180,7 +128,7 @@ impl<B: Backend> batcher::Batcher<CsvItem, CsvBatch<B>> for CsvBatcher<B> {
             // Now route has exactly fixed_len coordinate pairs
             let rows = route.len();  // This should be fixed_len
             let cols = if rows > 0 { route[0].len() } else { 0 }; // Expected to be 2
-            let flat_label: Vec<f32> = route.into_iter().flatten().collect();
+            let flat_label: Vec<f64> = route.into_iter().flatten().collect();
             let data = TensorData::new(flat_label, [rows, cols]);
             // Convert to a tensor of shape [1, fixed_len, 2]
             Tensor::<B, 2>::from_data(data, &self.device).reshape([1, rows, cols])
@@ -193,8 +141,35 @@ impl<B: Backend> batcher::Batcher<CsvItem, CsvBatch<B>> for CsvBatcher<B> {
 
         //println!("Batch features shape: {:?}", features.dims());
         //println!("Batch labels shape: {:?}", labels.dims());
-        CsvBatch { features, labels }
+        Batch { features, labels }
     }
 }
 
+
+pub fn format_string(data: &str) -> Vec<Vec<f64>> {
+    let data = data.trim_end_matches(',');
+
+    let mut parts = data.splitn(2, ','); // separate timestamp and rest
+    let timestamp = parts
+        .next()
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|n| vec![n])
+        .unwrap_or_else(|| vec![]);
+
+    let coordinates = parts
+        .next()
+        .unwrap_or("")
+        .split("),(")
+        .map(|s| {
+            let clean = s.trim_matches(|c| c == '(' || c == ')');
+            clean
+                .split(',')
+                .map(|n| n.trim().parse::<f64>().unwrap())
+                .collect::<Vec<f64>>()
+        });
+
+    let mut result: Vec<Vec<f64>> = vec![timestamp];
+    result.extend(coordinates);
+    result
+}
 
