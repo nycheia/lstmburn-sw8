@@ -4,6 +4,7 @@ mod training;
 mod inference;
 //use std::collections::HashSet;
 use std::error::Error;
+use std::fs;
 use burn::data::dataloader::Dataset;
 //use csv::ReaderBuilder;
 //use serde_json::Value;
@@ -145,19 +146,39 @@ fn main() -> Result<(), Box<dyn Error>> {
         device.clone(),
     );
 
-    let csv_dataset = CsvDataset::from_csv("./train.csv").expect("Failed to load CSV data");
+    /*let csv_dataset = CsvDataset::from_csv("./train.csv").expect("Failed to load CSV data");
     crate::inference::infer::<MyBackend>(
         artifact_dir,
         device,
         csv_dataset
             .get(1)
             .unwrap(),
-    );
+    );*/
+    let mut datasets = Vec::new();
+    for entry in fs::read_dir("aalborgopenstreetmapdata")? {
+        let path = entry?.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("csv") {
+            let ds = CsvDataset::from_csv(path.to_str().unwrap())
+                .expect(&format!("Failed to load {:?}", path));
+            datasets.push(ds);
+        }
+    }
 
-    for (i, item) in csv_dataset.items.iter().enumerate() {
+    for (i, ds) in datasets.into_iter().enumerate() {
+        let record = ds.get(1)
+            .unwrap_or_else(|| panic!("Dataset {} has no record #1", i));
+        crate::inference::infer::<MyBackend>(
+            artifact_dir,
+            device.clone(),
+            record,
+        );
+        println!("File #{:?},", i);
+    }
+
+    /*for (i, item) in csv_dataset.items.iter().enumerate() {
         if i >= 5 { break; }
         println!("Item {}: {:?}", i, item);
-    }
+    }*/
 
     Ok(())
 }
