@@ -156,12 +156,16 @@ impl<B: Backend> batcher::Batcher<CsvItem, CsvBatch<B>> for CsvBatcher<B> {
         let features = items.iter().map(|item| {
             // Suppose item.features currently is a vector with a single timestamp.
             // To create a sequence of length 10, you might replicate that timestamp 10 times:
-            let mut seq = vec![];
-            for _ in 0..10 {
-                seq.push(item.features[0]);
-            }
+            let seq: Vec<f32> = if item.features.len() >= fixed_len {
+                item.features[..fixed_len].to_vec()
+            } else {
+                let mut s = item.features.clone();
+                let pad_value = *item.features.last().unwrap_or(&0.0);
+                s.resize(fixed_len, pad_value);
+                s
+            };
             // Now, seq has 10 elements. Create a tensor with shape [10, 1]:
-            let data = TensorData::new(seq, [10, 1]);
+            let data = TensorData::new(seq, [fixed_len, 1]);
             Tensor::<B, 2>::from_data(data, &self.device)
         }).collect::<Vec<_>>();
 
