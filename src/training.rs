@@ -1,5 +1,5 @@
 use crate::ModelConfig;
-use crate::data::{Batch, DataBatcher, ItemDataset, format_string};
+use crate::data::{format_string, Batch, DataBatcher, ItemDataset};
 use crate::model::Model;
 use burn::config::Config;
 use burn::data::dataloader::DataLoaderBuilder;
@@ -64,7 +64,13 @@ pub fn train<B: AutodiffBackend>(
     let batcher_train = DataBatcher::<B>::new(device.clone());
     let batcher_valid = DataBatcher::<B::InnerBackend>::new(device.clone());
     let formated_data = format_string(&unformated_data);
+    println!("Formated String: {:?}", formated_data);
+    println!("");
     let (train_dataset, test_dataset) = ItemDataset::create_dataset(formated_data, 0.7);
+
+    println!("train: {:?}", train_dataset);
+    println!("");
+    println!("test: {:?}", test_dataset);
 
 
     let dataloader_train = DataLoaderBuilder::new(batcher_train)
@@ -100,3 +106,4 @@ pub fn train<B: AutodiffBackend>(
         )
         .expect("Trained model should be saved successfully");
 }
+

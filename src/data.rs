@@ -31,48 +31,43 @@ pub struct ItemDataset {
 }
 
 impl ItemDataset {
-
     pub fn create_dataset(data: Vec<Vec<f64>>, train_ratio: f64) -> (ItemDataset, ItemDataset) {
-        if data.is_empty() {
+        if data.len() < 2 {
             return (ItemDataset { items: vec![] }, ItemDataset { items: vec![] });
         }
 
-        // Extract the feature (first element)
-        let features = data[0]
-            .iter()
-            .map(|&x| x as f64)
-            .collect::<Vec<f64>>();
+        // Get the timestamp from the first element (index 0)
+        let timestamp = data[0][0];
+        let coordinates = &data[1..]; // coordinates are everything after the timestamp
 
-        // Extract the label (remaining elements)
-        let label = data[1..]
-            .iter()
-            .map(|pair| {
-                pair.iter()
-                    .map(|&x| x as f64)
-                    .collect::<Vec<f64>>()
-            })
-            .collect::<Vec<Vec<f64>>>();
+        let mut items = vec![];
 
-        // Calculate the split index
-        let train_len = (label.len() as f64 * train_ratio).round() as usize;
+        // Loop through the coordinates and create items
+        for i in 0..(coordinates.len()) {
+            let _input = coordinates[i..i].to_vec(); // seq_len coordinates
+            let target = coordinates[i].clone();    // the next coordinate (target)
 
-        // Split the label into training and testing
-        let train_labels = label[..train_len].to_vec();
-        let test_labels = label[train_len..].to_vec();
+            let item = Item {
+                features: vec![timestamp], // timestamp for each sequence
+                label: vec![target],       // label: the next coordinate in the sequence
+            };
+            items.push(item);
+        }
 
-        // Create the training and testing datasets
-        let train_item = Item { features: features.clone(), label: train_labels };
-        let test_item = Item { features: features.clone(), label: test_labels };
+        // Ensure train_ratio is between 0 and 1
+        let train_ratio = train_ratio.clamp(0.0, 1.0);
 
-        // Return the datasets with their items
+        // Calculate the split index based on the ratio
+        let split_idx = (items.len() as f64 * train_ratio).floor() as usize;
+
+        // Split the data sequentially into train and test datasets
+        let (train, test) = items.split_at(split_idx);
+
         (
-            ItemDataset { items: vec![train_item] },
-            ItemDataset { items: vec![test_item] }
+            ItemDataset { items: train.to_vec() },  // Train dataset
+            ItemDataset { items: test.to_vec() },   // Test dataset
         )
     }
-
-
-    
 }
 
 /// A batch produced from CSV data. The features are arranged as a 3D tensor
@@ -97,50 +92,69 @@ impl<B: Backend> DataBatcher<B> {
 
 impl<B: Backend> batcher::Batcher<Item, Batch<B>> for DataBatcher<B> {
     fn batch(&self, items: Vec<Item>) -> Batch<B> {
-        // Define a fixed route length
         let fixed_len = 10;
-        
-        // Process features as before
+
+        // Process features (timestamp + route coordinates)
         let features = items.iter().map(|item| {
-            // Suppose item.features currently is a vector with a single timestamp.
-            // To create a sequence of length 10, you might replicate that timestamp 10 times:
             let mut seq = vec![];
-            for _ in 0..10 {
-                seq.push(item.features[0]);
+
+            // Extract the timestamp (assuming it's the first feature)
+            let timestamp = item.features[0];
+
+            // Process the route coordinates (lat, lon)
+            let route = item.label.clone();
+            let mut fixed_route = route.clone();
+
+            // Pad or truncate the route to match the fixed length
+            if fixed_route.len() < fixed_len {
+                let pad_value = fixed_route.last().cloned().unwrap_or_else(|| vec![0.0, 0.0]);
+                fixed_route.resize(fixed_len, pad_value);
+            } else if fixed_route.len() > fixed_len {
+                fixed_route.truncate(fixed_len);
             }
-            // Now, seq has 10 elements. Create a tensor with shape [10, 1]:
-            let data = TensorData::new(seq, [10, 1]);
-            Tensor::<B, 2>::from_data(data, &self.device)
+
+            // Combine timestamp with each coordinate (lat, lon)
+            for coord in fixed_route {
+                seq.push(vec![timestamp, coord[0], coord[1]]);
+            }
+
+            // Flatten the sequence to create the tensor (flattening timestamp, lat, lon into a flat vector)
+            let data = TensorData::new(seq.into_iter().flatten().collect::<Vec<f64>>(), [fixed_len, 3]);
+
+            // Reshape to [1, fixed_len, 3] where the sequence has 3 features at each timestep
+            Tensor::<B, 2>::from_data(data, &self.device).reshape([1, fixed_len, 3])
         }).collect::<Vec<_>>();
 
-        // Process labels: pad or truncate each route to fixed_len coordinate pairs
+        // Concatenate all feature tensors along the batch dimension (axis 0)
+        let features = Tensor::cat(features, 0).to_device(&self.device);
+
+        // Process labels similarly (lat, lon coordinates)
         let labels = items.iter().map(|item| {
-            let mut route = item.label.clone();
-            let current_len = route.len();
-            if current_len < fixed_len {
-                // If route is too short, pad it by repeating the last coordinate pair
-                let pad_value = route.last().cloned().unwrap_or_else(|| vec![0.0, 0.0]);
-                route.resize(fixed_len, pad_value);
-            } else if current_len > fixed_len {
-                // If route is too long, truncate it
-                route.truncate(fixed_len);
+            let route = item.label.clone();
+            let mut fixed_route = route.clone();
+            
+            // Pad or truncate the route to match the fixed length
+            if fixed_route.len() < fixed_len {
+                let pad_value = fixed_route.last().cloned().unwrap_or_else(|| vec![0.0, 0.0]);
+                fixed_route.resize(fixed_len, pad_value);
+            } else if fixed_route.len() > fixed_len {
+                fixed_route.truncate(fixed_len);
             }
-            // Now route has exactly fixed_len coordinate pairs
-            let rows = route.len();  // This should be fixed_len
-            let cols = if rows > 0 { route[0].len() } else { 0 }; // Expected to be 2
-            let flat_label: Vec<f64> = route.into_iter().flatten().collect();
-            let data = TensorData::new(flat_label, [rows, cols]);
-            // Convert to a tensor of shape [1, fixed_len, 2]
-            Tensor::<B, 2>::from_data(data, &self.device).reshape([1, rows, cols])
+
+            // Flatten the coordinates (lat, lon) into a vector for each route
+            let flat_label: Vec<f64> = fixed_route.into_iter().flatten().collect();
+
+            // Create a tensor from the label sequence
+            let data = TensorData::new(flat_label, [fixed_len, 2]);
+
+            // Reshape to [1, fixed_len, 2] for lat/lon coordinates
+            Tensor::<B, 2>::from_data(data, &self.device).reshape([1, fixed_len, 2])
         }).collect::<Vec<_>>();
 
-        let features = Tensor::cat(features, 0).to_device(&self.device); // shape: [batch_size, feature_length]
-        let dims = features.dims();
-        let features = features.reshape([dims[0], 1, dims[1]]); // [batch_size, 1, feature_length]
-        let labels = Tensor::cat(labels, 0).to_device(&self.device); // shape: [batch_size, fixed_len, 2]
+        // Concatenate all label tensors along the batch dimension
+        let labels = Tensor::cat(labels, 0).to_device(&self.device);
 
-        //println!("Batch features shape: {:?}", features.dims());
-        //println!("Batch labels shape: {:?}", labels.dims());
+        // Return the batch with features and labels
         Batch { features, labels }
     }
 }

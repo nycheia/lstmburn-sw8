@@ -1,17 +1,15 @@
 use burn::{
-    nn::{
+    backend::{self, Wgpu}, nn::{
         gru::{Gru, GruConfig},
         pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig},
         Dropout, DropoutConfig, Linear, LinearConfig, Relu,
-    },
-    prelude::*,
-    train::RegressionOutput,
+    }, prelude::*, train::RegressionOutput
 };
 use burn::nn::loss::MseLoss;
 use burn::nn::loss::Reduction::Mean;
 
 #[derive(Module, Debug)]
-pub struct Model<B: Backend> {
+pub struct Model<B:Backend> {
     output_dim: usize,
     gru1: Gru<B>,
     gru2: Gru<B>,
@@ -36,7 +34,7 @@ impl ModelConfig {
 
         Model {
             output_dim,
-            gru1: GruConfig::new(1, 32, true).init(device),
+            gru1: GruConfig::new(2, 32, true).init(device),
             gru2: GruConfig::new(32, 64, true).init(device),
             pool: AdaptiveAvgPool2dConfig::new([8, 8]).init(),
             activation: Relu::new(),
