@@ -34,7 +34,7 @@ impl ModelConfig {
 
         Model {
             output_dim,
-            gru1: GruConfig::new(2, 32, true).init(device),
+            gru1: GruConfig::new(3, 32, true).init(device),
             gru2: GruConfig::new(32, 64, true).init(device),
             pool: AdaptiveAvgPool2dConfig::new([8, 8]).init(),
             activation: Relu::new(),

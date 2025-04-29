@@ -55,21 +55,27 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device, unformated_strin
 
     // Convert output tensor data into a Vec<f64>
     use std::convert::TryInto;
+    // 1) Grab your raw bytes…
     let tensor_data = output.into_data();
-    let raw_bytes = tensor_data.as_bytes(); // Assuming this gives you a Vec<u8>
+    let raw_bytes = tensor_data.as_bytes();
 
-    let f64_values: Vec<f64> = raw_bytes
-        .chunks(8)
+    // 2) Convert every 4 bytes → f32
+    let f32_values: Vec<f32> = raw_bytes
+        .chunks_exact(4)
         .map(|chunk| {
-            let arr: [u8; 8] = chunk.try_into().unwrap();
-            f64::from_le_bytes(arr)
+            let arr: [u8; 4] = chunk.try_into().unwrap();
+            f32::from_le_bytes(arr)
         })
         .collect();
 
-    // The output now contains only one predicted point
-    let predicted_point = f64_values.chunks(2).next().unwrap_or(&[0.0, 0.0]);
+    // 3) (Optionally) up‐cast to f64
+    let f64_values: Vec<f64> = f32_values.iter().map(|&v| v as f64).collect();
 
-    // Return the predicted point and the actual next point (label)
+    // 4) Each consecutive pair is one (x, y). To get the prediction for the last timestep:
+    let mut pairs = f64_values.chunks(2);
+    let predicted_point = pairs
+        .last()               // ← the final output, not the first!
+        .unwrap_or(&[0.0, 0.0]);
     let predicted_route = vec![predicted_point.to_vec()];
 
     (predicted_route, vec![actual_next_point])

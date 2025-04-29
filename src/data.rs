@@ -1,3 +1,5 @@
+use core::time;
+
 use burn::prelude::*;
 use burn::data::dataloader::batcher;
 //use burn::data::dataset::InMemDataset;
@@ -120,7 +122,6 @@ impl<B: Backend> batcher::Batcher<Item, Batch<B>> for DataBatcher<B> {
 
             // Flatten the sequence to create the tensor (flattening timestamp, lat, lon into a flat vector)
             let data = TensorData::new(seq.into_iter().flatten().collect::<Vec<f64>>(), [fixed_len, 3]);
-
             // Reshape to [1, fixed_len, 3] where the sequence has 3 features at each timestep
             Tensor::<B, 2>::from_data(data, &self.device).reshape([1, fixed_len, 3])
         }).collect::<Vec<_>>();
@@ -161,29 +162,31 @@ impl<B: Backend> batcher::Batcher<Item, Batch<B>> for DataBatcher<B> {
 
 
 pub fn format_string(data: &str) -> Vec<Vec<f64>> {
+    // Trim any trailing commas
     let data = data.trim_end_matches(',');
 
+    // Separate timestamp and coordinates
     let mut parts = data.splitn(2, ','); // separate timestamp and rest
-    let timestamp = parts
-        .next()
-        .and_then(|s| s.parse::<f64>().ok())
-        .map(|n| vec![n])
-        .unwrap_or_else(|| vec![]);
+    let timestamp_str = parts.next().unwrap_or("0");
+    let timestamp_int: u64 = timestamp_str.parse().expect("Invalid timestamp");
+    let timestamp_secs = vec![(timestamp_int as f64) / 1e3];
 
+    // Extract coordinates
     let coordinates = parts
         .next()
-        .unwrap_or("")
+        .unwrap_or("") // default to empty string if coordinates are missing
         .split("),(")
         .map(|s| {
+            // Clean up the coordinate string and parse into f64 values
             let clean = s.trim_matches(|c| c == '(' || c == ')');
             clean
                 .split(',')
-                .map(|n| n.trim().parse::<f64>().unwrap())
+                .map(|n| n.trim().parse::<f64>().unwrap()) // Parse the individual values as f64
                 .collect::<Vec<f64>>()
         });
 
-    let mut result: Vec<Vec<f64>> = vec![timestamp];
+    let mut result: Vec<Vec<f64>> = vec![timestamp_secs];
     result.extend(coordinates);
+    
     result
 }
-

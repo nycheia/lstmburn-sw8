@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let dropout:f64 = 0.5;
 
     // Training config
-    let num_epochs: usize = 2;
+    let num_epochs: usize = 10;
     let batch_size: usize = 64;
     let num_workers: usize = 1;
     // Seed ensures reproducibility
@@ -38,7 +38,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     type MyBackend = Wgpu<f32, i32>;
 
     let device = Default::default();
-
     
     let model_config = ModelConfig{
         hidden_size,
@@ -48,14 +47,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let model_path = format!("{}/model.bin", artifact_dir);
     let model_path = Path::new(&model_path);
 
-    /*
     // Create new model if not existing
     if !model_path.exists(){
         println!("Creating new model");
         model_config.init::<MyBackend>(&device);
     } 
-     */  
-    model_config.init::<MyBackend>(&device);
 
     let training_config = TrainingConfig{
         model: model_config,
@@ -66,14 +62,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         seed,
         learning_rate,
     };
-    /*
+    
     // Load existing model
     if model_path.exists(){
         println!("Loading existing model");
         let record = BinFileRecorder::<FullPrecisionSettings>::new().load(model_path.into(), &device).expect("Trained model should exist");
         training_config.model.init::<MyBackend>(&device).load_record(record);
     }
-     */
+     
 
     type MyAutodiffBackend = Autodiff<MyBackend>;
 
